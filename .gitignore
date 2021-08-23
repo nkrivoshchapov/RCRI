@@ -1,0 +1,7 @@
+rcrilib/__pycache__/*
+rcrilib/Solvers/libtlc.so
+rcrilib/*/__pycache__/*
+build/
+.idea/*
+timings.csv
+montecarlo.log
