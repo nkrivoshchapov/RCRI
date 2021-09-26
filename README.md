@@ -50,6 +50,7 @@ mkdir build && cd build
 cmake ..
 make
 make install
+cd ..
 ```
 
 In this way, the library `libtlc.so` will be built and copied into `rcrilib/Solvers`. Which means that `rcrilib` will become a functioning python-library loadable only from `RCRI` directory.
