@@ -81,6 +81,20 @@ class IK_ParameterSet:  # NEED TO OVERLOAD + TO ADD NEW PARAMETERS OF THE CYCLE
             newPS.success = False
         return newPS
 
+    def getCyclicDOFs(self):
+        newPS = IK_ParameterSet()
+        for item in self.params:
+            if item.isCyclic and item.isFree() and item.isContinuous():
+                newPS.params.append(item)
+        return newPS
+
+    def getNonCyclicDOFs(self):
+        newPS = IK_ParameterSet()
+        for item in self.params:
+            if not item.isCyclic and item.isFree() and item.isContinuous():
+                newPS.params.append(item)
+        return newPS
+
     def byTarget(self, tc, errorcause=cause.unknown):
         newPS = IK_ParameterSet()
         for item in self.params:
@@ -130,15 +144,14 @@ def dofstr(mytype):
         return "Dependent"
     elif mytype == ikdof.FIXED:
         return "Fixed"
-    elif mytype == ikdof.NONCYCLIC:
-        return "Non-cyclic"
 
 class IK_Parameter:
-    def __init__(self, dim, dep, sideatoms, tc, bond=None, atoms=None):
+    def __init__(self, dim, dep, sideatoms, tc, isCyclic, bond=None, atoms=None):
         self.dim = dim
         self.dep = dep
         self.tc = tc
         self.sides = deepcopy(sideatoms)
+        self.isCyclic = isCyclic
 
         if dim == ikdof.CONTINUOUS:
             if tc == target_class.MOLECULE:
@@ -192,7 +205,7 @@ class IK_Parameter:
         else:
             raise Exception("Fix it")
 
-# TODO Try to make these three @chached
+# TODO Try to make these three @cached
 def getfloat(myoption, myclass, config):
     if config.has_option(myclass, myoption):
         return config[myclass].getfloat(myoption)

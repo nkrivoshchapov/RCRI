@@ -288,7 +288,7 @@ class IK_Molecule:
         for bridge in nx.bridges(self.molgr):
             if (self.hasaneighbour(bridge[0], bridge[1]) and self.hasaneighbour(bridge[1], bridge[0])):
                 sideatoms = [self.getaneighbour(bridge[0], bridge[1]), self.getaneighbour(bridge[1], bridge[0])]
-                newparam = IK_Parameter(ikdof.CONTINUOUS, ikdof.FREE, sideatoms, tc.MOLECULE, atoms=bridge)
+                newparam = IK_Parameter(ikdof.CONTINUOUS, ikdof.FREE, sideatoms, tc.MOLECULE, False, atoms=bridge)
                 self.molgr[bridge[0]][bridge[1]]['par'] = newparam
                 self.PS += newparam
                 self.TorPS += newparam

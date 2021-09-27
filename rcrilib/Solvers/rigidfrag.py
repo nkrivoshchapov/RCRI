@@ -81,11 +81,11 @@ class IK_RigidFrag:
 
     def setparam(self, bond):
         if bond['free']:
-            self.PS += IK_Parameter(ikdof.CONTINUOUS, ikdof.FREE, bond.bond_getsideatoms(), tc.RIGIDFRAG, bond=bond)
+            self.PS += IK_Parameter(ikdof.CONTINUOUS, ikdof.FREE, bond.bond_getsideatoms(), tc.RIGIDFRAG, True, bond=bond)
         elif not bond['free'] and bond['dep']:
-            self.PS += IK_Parameter(ikdof.CONTINUOUS, ikdof.DEPENDENT, bond.bond_getsideatoms(), tc.RIGIDFRAG, bond=bond)
+            self.PS += IK_Parameter(ikdof.CONTINUOUS, ikdof.DEPENDENT, bond.bond_getsideatoms(), tc.RIGIDFRAG, True, bond=bond)
         elif not bond['free'] and not bond['dep']:
-            self.PS += IK_Parameter(ikdof.CONTINUOUS, ikdof.FIXED, bond.bond_getsideatoms(), tc.RIGIDFRAG, bond=bond)
+            self.PS += IK_Parameter(ikdof.CONTINUOUS, ikdof.FIXED, bond.bond_getsideatoms(), tc.RIGIDFRAG, True, bond=bond)
 
     def initGeom(self):
         # BOND LENGTHS

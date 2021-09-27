@@ -20,8 +20,8 @@ class IK_FourFiveCycleSolver(IK_Solver):
         self.PS = IK_ParameterSet()
         for lb in consbonds:
             if len(lb.bond) == 2:
-                self.PS += IK_Parameter(ikdof.CONTINUOUS, ikdof.DEPENDENT, copy(lb.side1), tc.SOLVER, atoms=copy(lb.bond))
-        self.PS += IK_Parameter(ikdof.DISCRETE, ikdof.FREE, 0, tc.SOLVER)
+                self.PS += IK_Parameter(ikdof.CONTINUOUS, ikdof.DEPENDENT, copy(lb.side1), tc.SOLVER, True, atoms=copy(lb.bond))
+        self.PS += IK_Parameter(ikdof.DISCRETE, ikdof.FREE, 0, tc.SOLVER, True)
         self.genconformers()
 
     def genconformers(self):

@@ -22,7 +22,7 @@ class IK_IdentitySolver(IK_Solver):
         for lb in consbonds:
             if len(lb.bond) == 2:
                 self.PS += IK_Parameter(ikdof.CONTINUOUS, ikdof.DEPENDENT, copy(lb.side1),
-                                        tc.SOLVER, atoms=copy(lb.bond))
+                                        tc.SOLVER, True, atoms=copy(lb.bond))
 
         N = len(self.G.nodes())
         self.nodes = list(self.G.nodes())

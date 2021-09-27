@@ -215,7 +215,7 @@ class IK_TLCsolver(IK_Solver):
         self.PS = IK_ParameterSet()
         for item in self.RF:
             self.PS += item.getPS()
-        self.PS += IK_Parameter(ikdof.DISCRETE, ikdof.FREE, 0, tc.SOLVER)
+        self.PS += IK_Parameter(ikdof.DISCRETE, ikdof.FREE, 0, tc.SOLVER, True)
         logger.debug("PS representation in solver: " + repr(self.PS))
 
         # Precalculate angles
