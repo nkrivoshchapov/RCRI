@@ -235,6 +235,10 @@ Coutsias E.A., Seok C., Wester M.J., Dill K.A. Resultants and loop closure // In
 
 https://math.unm.edu/~vageli/codes/loop-closure.tar.gz
 
+**MacroModel testset (structures `testing/mm*.sdf`)**
+
+Watts K.S., Dalal P., Tebben A.J., Cheney D.L., Shelley J.C. Macrocycle Conformational Sampling with MacroModel // J. Chem. Inf. Model. – American Chemical Society, 2014. – Vol. 54, No 10. – P. 2680–2696.
+
 **Earlier mentions of corner flapping and edge flipping procedures:**
 
 Goto H., Osawa E. Corner flapping: a simple and fast algorithm for exhaustive generation of ring conformations // J. Am. Chem. Soc. – American Chemical Society, 1989. – Vol. 111, № 24. – P. 8950–8951. – DOI: https://doi.org/10.1021/ja00206a046
