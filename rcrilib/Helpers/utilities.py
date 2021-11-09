@@ -1,8 +1,9 @@
 from copy import deepcopy
 from enum import Enum
 
-from .datastructures import GroupItem
+from .datastructures import GroupItem, SegmentItem
 from .logging import createLogger
+from .sharedvalue import sharedValue
 
 logger = createLogger("Utilities")
 
@@ -16,10 +17,11 @@ class ikdof(Enum):
 class target_class(Enum):
     MOLECULE = 1
     CYCLICPART = 2
-    PROBLEM = 3
-    SOLVER = 4
-    RIGIDFRAG = 5
-    FOURFIVE = 6
+    FAKEBOND = 3
+    PROBLEM = 4
+    SOLVER = 5
+    RIGIDFRAG = 6
+    FOURFIVE = 7
 
 class cause(Enum):
     unknown = 0
@@ -118,13 +120,13 @@ class IK_ParameterSet:  # NEED TO OVERLOAD + TO ADD NEW PARAMETERS OF THE CYCLE
         if len(self.params) == 0:
             return True
         for param in self.params:
-            if param.changed:
+            if param.isChanged():
                 return True
         return False
 
     def freeze(self):
         for param in self.params:
-            param.changed = False
+            param.freeze()
 
     def hasDDOF(self):
         for param in self.params:
@@ -159,7 +161,10 @@ class IK_Parameter:
 
             if isinstance(bond,GroupItem):
                 self.bond = bond
-                self.atoms = [bond['atoms'][0]['G_idx'],bond['atoms'][1]['G_idx']]
+                self.atoms = [bond['atoms'][0]['G_idx'], bond['atoms'][1]['G_idx']]
+            elif isinstance(bond, SegmentItem):
+                self.bond = bond
+                self.atoms = [bond['atoms'][0]['G_idx'], bond['atoms'][1]['G_idx']]
             else:
                 self.atoms = deepcopy(atoms)
         self.value = None
@@ -194,16 +199,43 @@ class IK_Parameter:
     def isFixed(self):
         return self.dep == ikdof.FIXED
 
-    def setValue(self, newval):
-        if self.value != newval:
+    def makeshared(self, descr):
+        self.value = sharedValue(descr)
+
+    def isShared(self):
+        return isinstance(self.value, sharedValue)
+
+    def getValue(self):
+        if isinstance(self.value, sharedValue):
+            return self.value.getValue()
+        else:
+            return self.value
+
+    def setValue(self, newval, trick=False):
+        if self.value != newval and isinstance(self.value, sharedValue):
+            self.value.setValue(newval, trick=trick)
+        elif self.value != newval:
             self.value = newval
-            self.changed = True
+            if not trick:
+                self.changed = True
 
     def setCounter(self, sc):
         if self.dim == ikdof.DISCRETE:
             self.solutionCounter = sc
         else:
             raise Exception("Fix it")
+
+    def freeze(self):
+        if isinstance(self.value, sharedValue):
+            return self.value.freeze()
+        else:
+            self.changed = False
+
+    def isChanged(self):
+        if isinstance(self.value, sharedValue):
+            return self.value.isChanged()
+        else:
+            return self.changed
 
 # TODO Try to make these three @cached
 def getfloat(myoption, myclass, config):

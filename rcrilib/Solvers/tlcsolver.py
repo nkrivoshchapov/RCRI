@@ -5,8 +5,8 @@ import numpy as np
 import os, random
 
 from .solver import IK_Solver
-from rcrilib.Helpers import Cngroup, GroupItem, itemtype, IK_ParameterSet, IK_Parameter, ikdof, getfloat, getbool, cause,\
-    geomcheckTree_cycle, createLogger, IK_Math
+from rcrilib.Helpers import Cngroup, GroupItem, itemtype, IK_ParameterSet, IK_Parameter, ikdof, getfloat, getbool, \
+    cause, geomcheckTree_cycle, createLogger, IK_Math, sharedValue
 from .rigidfrag import IK_RigidFrag
 from rcrilib.Helpers import target_class as tc
 
@@ -28,6 +28,7 @@ class IK_TLCsolver(IK_Solver):
         self.gengroups(consbonds)
         self.initbonds()
         self.initrigidfrags()
+        self.initperturbation()
 
         basedir = os.path.abspath(os.path.dirname(__file__))
         TLC_libfile = os.path.join(basedir, 'libtlc.so')
@@ -90,6 +91,14 @@ class IK_TLCsolver(IK_Solver):
             else:
                 self.Cbonds[i]['free'] = False
                 self.Cbonds[i]['dep'] = False
+
+            # GET REFERENCES TO SHARED VALUES FROM GRAPH ATTRIBUTES
+            for attr in self.G[curatom][prevatom]:
+                if "shared_" in attr or "own_" in attr:
+                    self.Cbonds[i][attr] = self.G[curatom][prevatom][attr]
+            for attr in self.G.nodes[prevatom]:
+                if "shared_" in attr or "own_" in attr:
+                    self.Catoms[i][attr] = self.G.nodes[prevatom][attr]
             i = mynext
 
     def initbonds(self):
@@ -215,13 +224,28 @@ class IK_TLCsolver(IK_Solver):
         self.PS = IK_ParameterSet()
         for item in self.RF:
             self.PS += item.getPS()
-        self.PS += IK_Parameter(ikdof.DISCRETE, ikdof.FREE, 0, tc.SOLVER, True)
+        p = IK_Parameter(ikdof.DISCRETE, ikdof.FREE, 0, tc.SOLVER, True)
+        p.solver = list(self.G.nodes)
+        self.PS += p
         logger.debug("PS representation in solver: " + repr(self.PS))
 
         # Precalculate angles
         self.RF[0].eatoms[0].atom_getangle()
         self.RF[1].eatoms[0].atom_getangle()
         self.RF[2].eatoms[0].atom_getangle()
+
+    def initperturbation(self):
+        if getbool("AllowAnglePerturbation", "IK_TLCSolver", self.config):
+            for atom in self.Catoms.items:
+                if hasattr(atom, "shared_vangle"):
+                    atom.vangle = atom["shared_vangle"]
+                    atom.own_vangle = atom["own_vangle"]
+
+        if getbool("AllowBondPerturbation", "IK_TLCSolver", self.config):
+            for bond in self.Cbonds.items:
+                if hasattr(bond, "shared_length"):
+                    bond.length = bond["shared_length"]
+                    bond.own_length = bond["own_length"]
 
     def getPS(self):
         return self.PS.getPS()
@@ -305,26 +329,34 @@ class IK_TLCsolver(IK_Solver):
             confs.append(deepcopy(conf))
         if len(confs) == 0:
             self.PS.cause = cause.zerosolutions
-            if self.PS.getMyDiscreteParameter(tc.SOLVER).value is not None:
+            if self.PS.getMyDiscreteParameter(tc.SOLVER).getValue() is not None:
                 raise Exception("Nonempty set of TLC solutions was expected")
             return self.PS.getPS(excludeFixed=True, errorcause=cause.zerosolutions)
 
         self.PS.getMyDiscreteParameter(tc.SOLVER).maxValue = len(confs)
-        if self.PS.getMyDiscreteParameter(tc.SOLVER).value is None:
-            self.PS.getMyDiscreteParameter(tc.SOLVER).value = random.randint(0, len(confs) - 1)
-            logger.info("Randomized solution " + repr(self.PS.getMyDiscreteParameter(tc.SOLVER).value))
+        if self.PS.getMyDiscreteParameter(tc.SOLVER).getValue() is None:
+            self.PS.getMyDiscreteParameter(tc.SOLVER).setValue(random.randint(0, len(confs) - 1), trick = True)
+            logger.info("Randomized solution " + repr(self.PS.getMyDiscreteParameter(tc.SOLVER).getValue()))
         self.PS.getMyDiscreteParameter(tc.SOLVER).solutionCounter.recordState()
-        if not self.quickcheck(confs[self.PS.getMyDiscreteParameter(tc.SOLVER).value]):
+        if not self.quickcheck(confs[self.PS.getMyDiscreteParameter(tc.SOLVER).getValue()]):
             self.PS.cause = cause.zerosolutions
             return self.PS.getPS(excludeFixed=True, errorcause=cause.zerosolutions_ddof)
-        self.setgeom(confs[self.PS.getMyDiscreteParameter(tc.SOLVER).value])
+        self.setgeom(confs[self.PS.getMyDiscreteParameter(tc.SOLVER).getValue()])
 
-        logger.info("Getting solution #" + repr(self.PS.getMyDiscreteParameter(tc.SOLVER).value))
+        logger.info("Getting solution #" + repr(self.PS.getMyDiscreteParameter(tc.SOLVER).getValue()))
         for frag in self.RF:
             frag.setgeom()
 
         if getbool("DoValidation", "IK_TLCSolver", self.config):
             self.checkgeom()
+
+        # xyzlines = [str(len(self.Catoms)), ""]
+        # for atom in self.Catoms.items:
+        #     xyzlines.append("%3s%10.4f%10.4f%10.4f" % ("C", atom['xyz'][0],atom['xyz'][1],atom['xyz'][2]))
+        # wfile = open("temp_sol.xyz", "w")
+        # wfile.write("\n".join(xyzlines))
+        # wfile.close()
+
         self.PS.cause = cause.success
         return IK_ParameterSet()
 

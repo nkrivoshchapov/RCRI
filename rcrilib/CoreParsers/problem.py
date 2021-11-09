@@ -1,11 +1,10 @@
-import numpy as np
-from numpy.linalg import norm
 import networkx as nx
 from copy import deepcopy
 from enum import Enum
 
 from rcrilib.Solvers import IK_FourFiveCycleSolver, IK_FlappingSolver, IK_IdentitySolver, IK_Solver, IK_TLCsolver
-from rcrilib.Helpers import IK_GeomValidator, createLogger, IK_ParameterSet, getbool, cause, IK_SolutionCounter
+from rcrilib.Helpers import IK_GeomValidator, createLogger, IK_ParameterSet, getbool, cause, IK_SolutionCounter, \
+    sharedValue
 
 logger = createLogger("IK_Problem")
 
@@ -74,19 +73,25 @@ class IK_Problem:
         nnodes = len(self.G.nodes())
         solut_constr = 0
         for bond in self.consbonds:
-            solut_constr += len(bond) - 1  # len(bond) MUST BE 1 OR 2 FOR NOW
+            if len(bond) > 2:
+                solut_constr += 1
+            else:
+                solut_constr += len(bond) - 1
         return nnodes - 3 - 3 * ncycles - solut_constr
 
     def connectDepParams(self):
-        for param in self.PS:
-            if (param.isDependent() or param.isFixed()) and len(param.atoms) == 2:
-                bond = [param.atoms[0], param.atoms[1]]
-                for lb in self.consbonds:
-                    if lb == bond:
-                        mylb = lb
-                        mylb.setParam(param)
-                        param['linkingbond'] = mylb
-                        mylb.checkOrientation()
+        # TODO Create data structures for this stuff?
+        # TODO Double checking the values of several LB for the same parameter (debugging);
+        # TODO Remove LBs for the same parameter (release)
+        for lb in self.consbonds:
+            for param in self.PS:
+                if (param.isDependent() or param.isFixed()) and len(param.atoms) == 2:
+                    bond = [param.atoms[0], param.atoms[1]]
+                    if lb.hasBond(bond):
+                        if not lb.isFake():
+                            lb.setParam(param)
+                        param['linkingbond'] = lb
+                        lb.checkOrientation()
                         logger.debug("Bond of dependent parameter = " + repr(bond))
                         break
 
@@ -124,3 +129,32 @@ class IK_Problem:
     def perturb_geometry(self):
         if self.method == ikalg.TLC:
             self.solver.perturb_geometry()
+
+    def share_vangle(self, atom):
+        if "shared_vangle" not in self.G.nodes[atom]:
+            self.G.nodes[atom]['own_vangle'] = True
+            self.G.nodes[atom]['shared_vangle'] = sharedValue("Shared vangle on atom %s (nb = %s)" % (atom,
+                                                                              repr(list(self.G.neighbors(atom)))))
+        return self.G.nodes[atom]['shared_vangle']
+
+    def assign_shared_vangle(self, atom, svalue):
+        if "shared_vangle" in self.G.nodes[atom]:
+            myvalue = self.G.nodes[atom]['shared_vangle']
+            myvalue.value = svalue
+        else:
+            self.G.nodes[atom]['shared_vangle'] = svalue
+        self.G.nodes[atom]['own_vangle'] = False
+
+    def share_length(self, bond):
+        if "shared_length" not in self.G[bond[0]][bond[1]]:
+            self.G[bond[0]][bond[1]]['own_length'] = True
+            self.G[bond[0]][bond[1]]['shared_length'] = sharedValue("Shared bond length (%d,%d)" % (bond[0], bond[1]))
+        return self.G[bond[0]][bond[1]]['shared_length']
+
+    def assign_shared_length(self, bond, svalue):
+        if "shared_length" in self.G[bond[0]][bond[1]]:
+            myvalue = self.G[bond[0]][bond[1]]['shared_length']
+            myvalue.value = svalue
+        else:
+            self.G[bond[0]][bond[1]]['shared_length'] = svalue
+        self.G[bond[0]][bond[1]]['own_length'] = False

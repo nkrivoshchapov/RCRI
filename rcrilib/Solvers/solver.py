@@ -20,9 +20,17 @@ class IK_IdentitySolver(IK_Solver):
 
         self.PS = IK_ParameterSet()
         for lb in consbonds:
-            if len(lb.bond) == 2:
+            if lb.isFake():
+                for bond in lb.ibonds + lb.sbonds:
+                    side = [(bond['atoms'][0]-1)['G_idx'], (bond['atoms'][1]+1)['G_idx']]
+                    bond = [bond['atoms'][0]['G_idx'], bond['atoms'][1]['G_idx']]
+                    p = IK_Parameter(ikdof.CONTINUOUS, ikdof.DEPENDENT, copy(side),
+                                     tc.SOLVER, True, atoms=copy(bond))
+                    p.value = self.G[bond[0]][bond[1]]['shared_dihedral']
+                    self.PS += p
+            elif len(lb.bond) == 2:
                 self.PS += IK_Parameter(ikdof.CONTINUOUS, ikdof.DEPENDENT, copy(lb.side1),
-                                        tc.SOLVER, True, atoms=copy(lb.bond))
+                                 tc.SOLVER, True, atoms=copy(lb.bond))
 
         N = len(self.G.nodes())
         self.nodes = list(self.G.nodes())
@@ -49,14 +57,14 @@ class IK_IdentitySolver(IK_Solver):
                 idx = [item.sides[0], item.atoms[0], item.atoms[1], item.sides[1]]
                 for i in range(len(idx)):
                     idx[i] = self.nodes.index(idx[i])
-                logger.debug("Required = %f; Actual = %f" % (item.value, IK_Math.gettorsion([self.conformer[idx[0]],
+                logger.debug("Required = %f; Actual = %f" % (item.getValue(), IK_Math.gettorsion([self.conformer[idx[0]],
                                                                                      self.conformer[idx[1]],
                                                                                      self.conformer[idx[2]],
                                                                                      self.conformer[idx[3]]])))
-                if abs(item.value - IK_Math.gettorsion([self.conformer[idx[0]],
-                                                     self.conformer[idx[1]],
-                                                     self.conformer[idx[2]],
-                                                     self.conformer[idx[3]]]) > 0.001):
+                if abs(item.getValue() - IK_Math.gettorsion([self.conformer[idx[0]],
+                                                             self.conformer[idx[1]],
+                                                             self.conformer[idx[2]],
+                                                             self.conformer[idx[3]]])) > 0.001:
                     self.PS.cause = cause.zerosolutions
                     return self.PS.getPS(excludeFixed=True, errorcause=cause.zerosolutions_ddof)
 

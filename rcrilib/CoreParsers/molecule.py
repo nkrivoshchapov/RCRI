@@ -128,7 +128,21 @@ class IK_Molecule:
         self.buildfraggraph()
         self.builddirectedgraph()
         if getbool("DoValidation", "IK_Molecule", self.config):
-            self.validator = IK_GeomValidator(self.molgr, self.FullPS)
+            if getbool("AllowAnglePerturbation", "IK_TLCSolver", self.config):
+                for part_idx in range(len(self.cycparts)):
+                    curgraph = self.cycparts[part_idx].G
+                    for node in curgraph.nodes():
+                        if "shared_vangle" in curgraph.nodes[node]:
+                            self.molgr.nodes[node]['shared_vangle'] = curgraph.nodes[node]['shared_vangle']
+            if getbool("AllowBondPerturbation", "IK_TLCSolver", self.config):
+                for part_idx in range(len(self.cycparts)):
+                    curgraph = self.cycparts[part_idx].G
+                    for edge in curgraph.edges():
+                        if "shared_length" in curgraph[edge[0]][edge[1]]:
+                            self.molgr[edge[0]][edge[1]]['shared_length'] = curgraph[edge[0]][edge[1]]['shared_length']
+
+        if getbool("DoValidation", "IK_Molecule", self.config):
+            self.validator = IK_GeomValidator(self.molgr, self.FullPS) # TODO Check if it works when testing/flapping_2.sdf geometry is broken by FlappingSolver
         logger.debug("Full Mol PS: " + repr(self.PS))
 
     def buildfraggraph(self):
@@ -331,6 +345,8 @@ class IK_Molecule:
             if not redoPS.success:
                 return redoPS
         for i in range(len(self.cycparts)):
+            # if i == 1:
+            #     print("HERE")
             if i < self.discr_cp:
                 self.cycparts[i].ccounter.restore_ddof()
             if increase_discrete and i == self.discr_cp:
@@ -357,7 +373,7 @@ class IK_Molecule:
             for frag in dep_frags:
                 self.DFG.nodes[frag]['frame'] = self.DFG.nodes[curfrag]['frame'] @ \
                                                 self.DFG[curfrag][frag]['transition'] @ \
-                                                IK_Math.Tmat(self.DFG[curfrag][frag]['param'][0].value)
+                                                IK_Math.Tmat(self.DFG[curfrag][frag]['param'][0].getValue())
             todo_frags += dep_frags
 
         for i in range(len(self.atoms_xyz)):

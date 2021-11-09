@@ -28,30 +28,30 @@ class IK_SolutionCounter:
 
     def recordState(self):
         if self.hasddof:
-            self.value = self.ddof.value
+            self.value = self.ddof.getValue()
             self.maxValue = self.ddof.maxValue
             for i in range(len(self.cont_dofs)):
-                self.cont_dofs[i] = self.ps.params[i].value
+                self.cont_dofs[i] = self.ps.params[i].getValue()
             self.checkState()
 
     def checkState(self):
         if self.hasddof:
-            if self.ddof.value is not None and self.value != self.ddof.value:
-                raise Exception("Unexpected change of DDOF value %s vs %s" % (repr(self.value), repr(self.ddof.value)))
+            if self.ddof.getValue() is not None and self.value != self.ddof.getValue():
+                raise Exception("Unexpected change of DDOF value %s vs %s" % (repr(self.value), repr(self.ddof.getValue())))
 
             if self.maxValue != self.ddof.maxValue:
                 raise Exception("Unexpected change of DDOF maxValue")
 
-            if self.ddof.value is not None:
+            if self.ddof.getValue() is not None:
                 for i in range(len(self.cont_dofs)):
-                    if self.cont_dofs[i] != self.ps.params[i].value:
+                    if self.cont_dofs[i] != self.ps.params[i].getValue():
                         raise Exception("Unexpected change of continuous DOF value")
 
     def checkPS(self, ps): # TODO Remove this functions?
         if self.hasddof:
             if hasattr(self,"maxValue"):
                 self.checkState()
-            if self.ddof.value is not None and ps.cause != cause.geomoverlap_ddof and ps.cause != cause.zerosolutions_ddof:
+            if self.ddof.getValue() is not None and ps.cause != cause.geomoverlap_ddof and ps.cause != cause.zerosolutions_ddof:
                 bad = False
                 for param in ps.params:
                     if param.dim == ikdof.DISCRETE:
@@ -66,7 +66,7 @@ class IK_SolutionCounter:
         if self.hasddof:
             if hasattr(self,"maxValue"):
                 self.checkState()
-            if self.ddof.value is not None and ps.cause != cause.geomoverlap_ddof and ps.cause != cause.zerosolutions_ddof:
+            if self.ddof.getValue() is not None and ps.cause != cause.geomoverlap_ddof and ps.cause != cause.zerosolutions_ddof:
                 for param in ps.params:
                     if param.dim == ikdof.DISCRETE:
                         continue
@@ -79,7 +79,7 @@ class IK_SolutionCounter:
 
     def startDiscreteRun(self):
         if self.hasddof:
-            self.startDiscr = self.ddof.value
+            self.startDiscr = self.ddof.getValue()
             self.maxDiscr = self.ddof.maxValue
             self.discValues = list(range(self.maxDiscr))
             self.discValues.remove(self.startDiscr)
@@ -107,19 +107,21 @@ class IK_SolutionCounter:
             return "%s;NoDDOF" % (self.name)
 
         if hasattr(self, "discValues"):
-            if self.ddof.value in self.discValues:
+            if self.ddof.getValue() in self.discValues:
                 raise Exception("Repeated DDOFs!!!")
         if nocount:
             if hasattr(self, "discValues"):
-                return "%s;%s;%s" % (self.name, repr(self.discValues), repr(self.ddof.value))
+                return "%s;%s;%s" % (self.name, repr(self.discValues), repr(self.ddof.getValue()))
             else:
-                return "%s;NAN;%s" % (self.name, repr(self.ddof.value))
+                return "%s;NAN;%s" % (self.name, repr(self.ddof.getValue()))
         else:
             builtins.scounter_linecount += 1
+            # if builtins.scounter_linecount == 3061:
+            #     print("HERE")
             if hasattr(self,"discValues"):
-                return "%s;%s;%s;line #%d" % (self.name, repr(self.discValues), repr(self.ddof.value), builtins.scounter_linecount)
+                return "%s;%s;%s;line #%d" % (self.name, repr(self.discValues), repr(self.ddof.getValue()), builtins.scounter_linecount)
             else:
-                return "%s;NAN;%s;line #%d" % (self.name, repr(self.ddof.value), builtins.scounter_linecount)
+                return "%s;NAN;%s;line #%d" % (self.name, repr(self.ddof.getValue()), builtins.scounter_linecount)
 
     def backup_ddof(self):
         if self.hasddof:
@@ -136,6 +138,16 @@ class IK_SolutionCounter:
             self.value = self.value_backup
             self.ddof.maxValue = self.maxDiscr_backup
             self.ddof.setValue(self.value_backup)
+
+    def cleanup_temporary_ddofs(self):
+        if self.hasddof:
+            if self.ddof.getValue() is not None:
+                for i in range(len(self.cont_dofs)):
+                    if self.cont_dofs[i] != self.ps.params[i].getValue():
+                        # if len(self.discValues) != 0:
+                        #     raise Exception("Sus")
+                        self.discValues = []
+                        self.ddof.setValue(None)
 
 class IK_CompoundCounter:
     def __init__(self):
@@ -190,3 +202,7 @@ class IK_CompoundCounter:
     def restore_ddof(self):
         for item in self.counters:
             item.restore_ddof()
+
+    def cleanup_temporary_ddofs(self):
+        for item in self.counters:
+            item.cleanup_temporary_ddofs()

@@ -2,6 +2,7 @@ from copy import copy, deepcopy
 import numpy as np
 from numpy.linalg import inv
 from numpy import cos, sin
+import builtins
 
 from rcrilib.Helpers import IK_Math, createLogger
 
@@ -22,12 +23,21 @@ class IK_LinkingBond:
         self.orient = True  # TRUE - SAME ORIENTATION IN IK_LinkingBond and IK_TLCSolver, ELSE - FALSE
         self.ind_idx = ind_cycle_idx
         self.dep_idx = dep_cycle_idx
+        self.done_init = False
 
     def __eq__(self, other):
-        if isinstance(other, list):
-            return other[0] in self.bond and other[1] in self.bond
-        elif isinstance(other, list):
+        if isinstance(other, IK_LinkingBond):
             return self.bond == other.bond and self.side1 == other.side1 and self.side2 == other.side2
+        elif isinstance(other, list): # Duplicate of hasBond
+            return other[0] in self.bond and other[1] in self.bond
+        else:
+            raise Exception("Invalid comparison")
+
+    def hasBond(self, atompair):
+        if isinstance(atompair, list):
+            return atompair[0] in self.bond and atompair[1] in self.bond
+        else:
+            raise Exception("Invalid comparison")
 
     def __len__(self):
         return len(self.bond)
@@ -38,6 +48,7 @@ class IK_LinkingBond:
             raise Exception('Trying to establish dependence of independent parameter!')
 
     def readDependence(self, G):
+        self.done_init = True
         if len(self.bond) == 1:
             #SIDE 1
             at0 = G.nodes[self.side1[0]]['xyz']
@@ -56,7 +67,6 @@ class IK_LinkingBond:
             zv2 = IK_Math.gs_rand(xv2, yv2)
             frame2 = np.array([xv2, yv2, zv2]).transpose()
             self.transit_mat = inv(frame1) @ frame2
-
         elif len(self.bond) == 2:
             # SIDE 1
             at0 = G.nodes[self.side1[0]]['xyz']
@@ -170,3 +180,18 @@ class IK_LinkingBond:
                                          (G_ind.nodes[node]['xyz'] - center) @ cv,
                                          1])
             G_glob.nodes[node]['xyz'] = np.array([coord[0], coord[1], coord[2]])
+
+        # xyzlines = [str(G_ind.number_of_nodes()), ""]
+        # for node in list(G_ind.nodes()):
+        #     xyzlines.append("%3s%10.4f%10.4f%10.4f%3s" % ("C", G_ind.nodes[node]['xyz'][0],
+        #                                                   G_ind.nodes[node]['xyz'][1],
+        #                                                   G_ind.nodes[node]['xyz'][2], ""))
+        # wfile = open("indepframe2.xyz", "w")
+        # wfile.write("\n".join(xyzlines))
+        # wfile.close()
+
+        # if builtins.loglinecount == 66:
+        #     print("HERE")
+
+    def isFake(self):
+        return False

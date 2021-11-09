@@ -5,10 +5,10 @@ from numpy.linalg import norm, inv
 
 from rcrilib.Helpers import IK_ParameterSet, getfloat, getbool, cause, IK_GeomValidator, geomcheckTree_cycpart, \
     createLogger, IK_Math, IK_CompoundCounter
-from .problem import IK_Problem
+from .problem import IK_Problem, ikalg
 from .linkingbond import IK_LinkingBond
 from .geomunit import IK_GeomUnit
-from rcrilib.Helpers import target_class as tc
+from .fakebond import IK_FakeBond
 
 logger = createLogger("IK_CyclicPart")
 
@@ -19,55 +19,150 @@ class IK_CyclicPart:
         for node in list(self.G.nodes):
             self.G.nodes[node]['xyz'] = np.array([atoms_xyz[node][0], atoms_xyz[node][1], atoms_xyz[node][2]])
 
-        self.getcyclegraph()  # CREATE self.CG
+        self.getcyclegraph(bonds_num, bonds_type)  # CREATE self.IG
         logger.debug("Minimum cycle basis (text line <-> set of nodes of G graph <-> node of CG graph):")
         for i in range(len(self.mcb)):
             logger.debug("%d) %s" % (i + 1, repr(self.mcb[i])))
 
-        self.reducecycles(bonds_num, bonds_type)  # CREATE self.IG
+        # self.reducecycles(bonds_num, bonds_type)
         logger.debug("Linking atoms of independent parts (attributes of IG graph's edges):")
         for edge in list(self.IG.edges()):
             logger.debug("  Link %d - %d : %s" % (edge[0], edge[1], repr(self.IG[edge[0]][edge[1]]['link'])))
 
-        self.redirect_ig()  # CREATE self.DG AND IK_Problem OBJECTS
+        self.redirect_ig() # CREATE self.DG AND IK_Problem OBJECTS
         self.buildPS()
+        if getbool("DoValidation", "IK_CyclicPart", self.config) or getbool("DoValidation", "IK_GeomUnit", self.config):
+            if getbool("AllowAnglePerturbation", "IK_TLCSolver", self.config):
+                for graph_idx in self.IG.nodes():
+                    curgraph = self.IG.nodes[graph_idx]['graph']
+                    for node in curgraph.nodes():
+                        if "shared_vangle" in curgraph.nodes[node]:
+                            self.G.nodes[node]['shared_vangle'] = curgraph.nodes[node]['shared_vangle']
+            if getbool("AllowBondPerturbation", "IK_TLCSolver", self.config):
+                for graph_idx in self.IG.nodes():
+                    curgraph = self.IG.nodes[graph_idx]['graph']
+                    for edge in curgraph.edges():
+                        if "shared_length" in curgraph[edge[0]][edge[1]]:
+                            self.G[edge[0]][edge[1]]['shared_length'] = curgraph[edge[0]][edge[1]]['shared_length']
+
         if getbool("DoValidation", "IK_CyclicPart", self.config):
             self.validator = IK_GeomValidator(self.G, self.FullPS)
         self.geomunit = IK_GeomUnit(self.G, self.DG, self.headnode, self.config, 0, 0)
         self.ccounter = IK_CompoundCounter()
         self.ccounter += self.geomunit.ccounter
 
-    def getcyclegraph(self):
-        mcb = [set(c) for c in nx.minimum_cycle_basis(self.G)]
-        edges = []
-        curcyc = 0
-        i = 1
-        while curcyc < len(mcb):
-            if i == len(mcb):
-                curcyc += 1
-                i = curcyc + 1
-                continue
+    def getcyclegraph(self, bonds_num, bonds_type):
+        first_mcb = [set(c) for c in nx.minimum_cycle_basis(self.G)]
+        tempG = nx.Graph()
+        for i in range(len(first_mcb)):
+            tempG.add_node(i)
+            tempG.nodes[i]['atomset'] = first_mcb[i]
+            if len(first_mcb[i]) <= 5:
+                tempG.nodes[i]['ndof'] = -1 # THEY MUST BE UNITED
+            else:
+                tempG.nodes[i]['ndof'] = len(first_mcb[i]) - 6
 
-            if len(mcb[curcyc].intersection(mcb[i])) > 2:
-                mcb[curcyc].update(mcb[i])
-                del mcb[i]
-                curcyc = 0
-                i = 1
-            else:
-                i += 1
-        for i in range(len(mcb)):
-            for j in range(i + 1, len(mcb)):
-                if len(mcb[i].intersection(mcb[j])) > 0:
-                    edges.append([i, j])
-        self.CG = nx.Graph()
-        if len(edges) == 0:
-            if len(mcb) == 1:
-                self.CG.add_node(0)
-            else:
-                raise Exception("No edges and not 1 node!?")
+        for i in range(tempG.number_of_nodes()):
+            for j in range(i + 1, tempG.number_of_nodes()):
+                if len(tempG.nodes[i]['atomset'].intersection(tempG.nodes[j]['atomset'])) > 0:
+                    tempG.add_edge(i, j)
+        clean_run = False
+        while not clean_run:
+            clean_run = True
+            for node in list(tempG.nodes()):
+                if tempG.nodes[node]['ndof'] == -1:
+                    for nbnode in list(tempG.neighbors(node)):
+                        spiro_link = (len(tempG.nodes[node]['atomset'].
+                                          intersection(tempG.nodes[nbnode]['atomset'])) == 1)
+                        lack_dofs = (len(tempG.nodes[nbnode]['atomset']) - 6 - (len(tempG.nodes[node]['atomset'].
+                                          intersection(tempG.nodes[nbnode]['atomset'])) - 1) < 0)
+                        logger.info("node atoms = %s\nnbnode atoms = %s\nspiro criterion = %d(%s)\n"
+                                     "lack criterion = %d(%s)" % (
+                            repr(tempG.nodes[node]['atomset']),
+                            repr(tempG.nodes[nbnode]['atomset']),
+                            len(tempG.nodes[node]['atomset'].intersection(tempG.nodes[nbnode]['atomset'])),
+                            repr(spiro_link),
+                            len(tempG.nodes[nbnode]['atomset']) - 6 - (len(tempG.nodes[node]['atomset'].
+                                                   intersection(tempG.nodes[nbnode]['atomset'])) - 1), repr(lack_dofs)
+                        ))
+                        if not spiro_link and lack_dofs:
+                            # Should unite 'node' with 'nbnode'
+                            tempG.nodes[node]['atomset'].update(tempG.nodes[nbnode]['atomset'])
+                            for other_nb in tempG.neighbors(nbnode):
+                                if other_nb != node:
+                                    tempG.add_edge(other_nb, node)
+                            tempG.remove_node(nbnode)
+                            clean_run = False
+                    if not clean_run:
+                        break
+
+        self.mcb = []
+        for node in tempG.nodes():
+            self.mcb.append(tempG.nodes[node]['atomset'])
+        self.IG = nx.Graph()
+        for i in range(len(self.mcb)):
+            for j in range(i + 1, len(self.mcb)):
+                common_atoms = self.mcb[i].intersection(self.mcb[j])
+                if len(common_atoms) > 0:
+                    self.IG.add_edge(i, j, link=list(common_atoms))
+        if self.IG.number_of_edges() == 0 and len(self.mcb) == 1:
+            self.IG.add_node(0)
+        assert self.IG.number_of_nodes() != 0, "Cycle graph has 0 nodes"
+
+        for i in range(len(self.mcb)):
+            fraggraph = nx.Graph()
+            for edge in list(self.G.edges):
+                if edge[0] in self.mcb[i] and edge[1] in self.mcb[i]:
+                    issingle = self.isrotatable(edge[0], edge[1], bonds_num, bonds_type)
+                    fraggraph.add_edge(*edge, type=issingle, single=issingle)
+            for node in fraggraph.nodes():
+                fraggraph.nodes[node]['xyz'] = deepcopy(self.G.nodes[node]['xyz'])
+            self.IG.nodes[i]['graph'] = fraggraph
+            self.IG.nodes[i]['NDOF'] = self.ndof(fraggraph)
+        # TODO Detect topology of a sphere (3D cage)
+
+        IGcycles = nx.Graph()
+        IGcycles.add_edges_from(self.IG.edges)
+        for br in nx.bridges(self.IG):
+            IGcycles.remove_edge(br[0], br[1])
+        self.preDG = nx.Graph()
+        if len(self.IG.edges) == 0:
+            self.preDG.add_nodes_from(self.IG.nodes)
         else:
-            self.CG.add_edges_from(edges)
-        self.mcb = deepcopy(mcb)
+            self.preDG.add_edges_from(self.IG.edges)
+        ringgroups = [self.preDG.subgraph(IGcycles.subgraph(c).nodes()) for c in nx.connected_components(IGcycles)]
+
+        for cursubgraph in ringgroups:
+            if nx.number_of_nodes(cursubgraph) > 1: # Then it is a ring in of condensed cycles
+                cyclicedges = set(cursubgraph.edges)
+                while nx.number_of_nodes(cursubgraph) - nx.number_of_edges(cursubgraph) != 1:
+                    cyclicedges.difference_update(set(nx.bridges(cursubgraph)))
+                    # logger.info("Bridges = " + repr(set(nx.bridges(cursubgraph))))
+                    # logger.info("cyclicedges = " + repr(cyclicedges))
+                    mindof = None
+                    minnode = None
+                    for node in cursubgraph.nodes():
+                        ndof = self.IG.nodes[node]['NDOF']
+                        if mindof is None or mindof > ndof:
+                            for edge in cyclicedges:
+                                if node in edge:
+                                    mindof = ndof
+                                    minnode = node
+                                    break
+                    nbs = list(cursubgraph.neighbors(minnode))
+                    maxdof = None
+                    maxnode = None
+                    for nb in nbs:
+                        ndof = self.IG.nodes[nb]['NDOF']
+                        if maxdof is None or maxdof < ndof:
+                            maxdof = ndof
+                            maxnode = nb
+                    self.preDG.remove_edge(maxnode, minnode)
+                    # logger.error("Removed edge %d - %d" % (maxnode, minnode))
+                    if (maxnode, minnode) in cyclicedges:
+                        cyclicedges.remove((maxnode, minnode))
+                    else:
+                        cyclicedges.remove((minnode, maxnode))
 
     def isrotatable(self, at1, at2, bonds_num, bonds_type):
         for i in range(len(bonds_num)):
@@ -77,98 +172,129 @@ class IK_CyclicPart:
                 else:
                     return False
 
-    def reducecycles(self, bonds_num, bonds_type):
-        CGcycles = deepcopy(self.CG)
-        for br in nx.bridges(self.CG):
-            CGcycles.remove_edge(br[0], br[1])
-        cg_comp = [set(CGcycles.subgraph(c).nodes()) for c in
-                   nx.connected_components(CGcycles)]  # INDEPENDENT NODES OF self.CG
-        indepgraphs = []
-        indepnodes = []  # NODES OF INDEPENDENT CYCLES OF self.G
-        indepedges = []  # EDGES OF INDEPENDENT CYCLES OF self.G
-        for comp in cg_comp:
-            newitem = set()
-            for i in comp:
-                newitem.update(self.mcb[i])
-            edges = set()
-            for edge in list(self.G.edges):
-                if edge[0] in newitem and edge[1] in newitem:
-                    edges.add(edge)
-            newgraph = nx.Graph()
-            newgraph.add_edges_from(edges)
-            indepnodes.append(set(newgraph.nodes()))
-            indepgraphs.append(newgraph)
-            indepedges.append(edges)
-
-        igedges = []  # EDGES OF self.IG
-        iglinks = []  # ATTRIBUTES OF EDGES OF self.IG
-        for i in range(len(cg_comp)):
-            for j in range(i + 1, len(cg_comp)):
-                if len(indepnodes[i].intersection(indepnodes[j])) > 0:
-                    igedges.append([i, j])
-                    iglinks.append([[i, j], list(indepnodes[i].intersection(indepnodes[j]))])
-
-        self.IG = nx.Graph()
-        if len(igedges) == 0:
-            if len(indepgraphs) == 1:
-                self.IG.add_node(0)
-            else:
-                raise Exception("[CyclicPart] No edges but len(indepgraphs) != 1")
-        else:
-            self.IG.add_edges_from(igedges)
-
-        for item in iglinks:
-            self.IG[item[0][0]][item[0][1]]['link'] = item[1]
-
-        for graph in indepgraphs:
-            for node in list(graph.nodes()):
-                graph.nodes[node]['xyz'] = deepcopy(self.G.nodes[node]['xyz'])
-            for edge in list(graph.edges()):
-                graph[edge[0]][edge[1]]['type'] = self.isrotatable(edge[0], edge[1], bonds_num, bonds_type)
-                graph[edge[0]][edge[1]]['single'] = self.isrotatable(edge[0], edge[1], bonds_num, bonds_type)
-
-        for i in range(len(indepgraphs)):
-            self.IG.nodes[i]['graph'] = indepgraphs[i]
-            self.IG.nodes[i]['NDOF'] = self.ndof(indepgraphs[i])
+    # def reducecycles(self, bonds_num, bonds_type):
+    #     CGcycles = deepcopy(self.CG)
+    #     for br in nx.bridges(self.CG):
+    #         CGcycles.remove_edge(br[0], br[1])
+    #     cg_comp = [set(CGcycles.subgraph(c).nodes()) for c in
+    #                nx.connected_components(CGcycles)]  # INDEPENDENT NODES OF self.CG
+    #     indepgraphs = []
+    #     indepnodes = []  # NODES OF INDEPENDENT CYCLES OF self.G
+    #     indepedges = []  # EDGES OF INDEPENDENT CYCLES OF self.G
+    #     for comp in cg_comp:
+    #         newitem = set()
+    #         for i in comp:
+    #             newitem.update(self.mcb[i])
+    #         edges = set()
+    #         for edge in list(self.G.edges):
+    #             if edge[0] in newitem and edge[1] in newitem:
+    #                 edges.add(edge)
+    #         newgraph = nx.Graph()
+    #         newgraph.add_edges_from(edges)
+    #         indepnodes.append(set(newgraph.nodes()))
+    #         indepgraphs.append(newgraph)
+    #         indepedges.append(edges)
+    #
+    #     igedges = []  # EDGES OF self.IG
+    #     iglinks = []  # ATTRIBUTES OF EDGES OF self.IG
+    #     for i in range(len(cg_comp)):
+    #         for j in range(i + 1, len(cg_comp)):
+    #             if len(indepnodes[i].intersection(indepnodes[j])) > 0:
+    #                 igedges.append([i, j])
+    #                 iglinks.append([[i, j], list(indepnodes[i].intersection(indepnodes[j]))])
+    #
+    #     self.IG = nx.Graph()
+    #     if len(igedges) == 0:
+    #         if len(indepgraphs) == 1:
+    #             self.IG.add_node(0)
+    #         else:
+    #             raise Exception("[CyclicPart] No edges but len(indepgraphs) != 1")
+    #     else:
+    #         self.IG.add_edges_from(igedges)
+    #
+    #     for item in iglinks:
+    #         self.IG[item[0][0]][item[0][1]]['link'] = item[1]
+    #
+    #     for graph in indepgraphs:
+    #         for node in list(graph.nodes()):
+    #             graph.nodes[node]['xyz'] = deepcopy(self.G.nodes[node]['xyz'])
+    #         for edge in list(graph.edges()):
+    #             graph[edge[0]][edge[1]]['type'] = self.isrotatable(edge[0], edge[1], bonds_num, bonds_type)
+    #             graph[edge[0]][edge[1]]['single'] = self.isrotatable(edge[0], edge[1], bonds_num, bonds_type)
+    #
+    #     for i in range(len(indepgraphs)):
+    #         self.IG.nodes[i]['graph'] = indepgraphs[i]
+    #         self.IG.nodes[i]['NDOF'] = self.ndof(indepgraphs[i])
 
     def redirect_ig(self):
-        bestDOF = -100
-        self.headnode = -1
+        bestDOF = None
+        self.headnode = None
         for node in list(self.IG.nodes()):
-            if bestDOF < self.IG.nodes[node]['NDOF']:
+            if bestDOF is None or bestDOF < self.IG.nodes[node]['NDOF']:
                 self.headnode = node
                 bestDOF = self.IG.nodes[node]['NDOF']
-        logger.debug("Headnode = " + repr(self.headnode))
-        logger.debug("Headnode's atoms = " + repr(list(self.IG.nodes[self.headnode]['graph'].nodes())))
+        logger.info("Headnode = " + repr(self.headnode))
+        logger.info("Headnode's atoms = " + repr(list(self.IG.nodes[self.headnode]['graph'].nodes())))
         endnodes = []
-        for node in list(self.IG):
-            if len(list(self.IG.neighbors(node))) == 1:
+        for node in list(self.preDG):
+            if len(list(self.preDG.neighbors(node))) == 1:
                 endnodes.append(node)
         if self.headnode in endnodes:
             endnodes.remove(self.headnode)
 
         self.DG = nx.DiGraph(directed=True)
         logger.debug("Endnodes = " + repr(endnodes))
-        for enode in endnodes:
-            solvepath = nx.shortest_path(self.IG, source=enode, target=self.headnode)
-            for i in range(len(solvepath) - 1):
-                self.DG.add_edge(solvepath[i + 1], solvepath[i])
-        if len(self.IG.nodes) == 1:
-            self.DG.add_node(0)
 
-        for node in list(self.DG.nodes()):
+        for enode in endnodes:
+            solvepath = nx.shortest_path(self.preDG, source=enode, target=self.headnode)
+            for i in range(len(solvepath) - 1):
+                if not self.DG.has_edge(solvepath[i + 1], solvepath[i]):
+                    self.DG.add_edge(solvepath[i + 1], solvepath[i])
+                    self.DG.nodes[solvepath[i]]['dg_order'] = len(solvepath) - i - 1
+                    logger.info("Adding edge to DG : %d -> %d" % (solvepath[i + 1], solvepath[i]))
+                    logger.info("Node %d has order %d" % (solvepath[i], self.DG.nodes[solvepath[i]]['dg_order']))
+        if len(self.preDG.nodes) == 1:
+            self.DG.add_node(0)
+        self.DG.nodes[self.headnode]['dg_order'] = 0
+
+        for node in self.DG.nodes:
             self.DG.nodes[node]['dep_max'] = len(list(self.DG.neighbors(node)))
 
-        for node in list(self.DG.nodes()):
+        self.LG = nx.DiGraph(directed=True)
+        self.LG.add_edges_from(self.DG.edges)
+        if len(self.DG.edges) == 0:
+            self.LG.add_nodes_from(self.DG.nodes)
+
+        for edge in self.IG.edges:
+            if not self.LG.has_edge(edge[0], edge[1]) and not self.LG.has_edge(edge[1], edge[0]):
+                if nx.has_path(self.DG, source=edge[0], target=edge[1]):
+                    self.LG.add_edge(edge[0], edge[1])
+                elif nx.has_path(self.DG, source=edge[1], target=edge[0]):
+                    self.LG.add_edge(edge[1], edge[0])
+                else:
+                    newedge = None
+                    if self.DG.nodes[edge[0]]['dg_order'] > self.DG.nodes[edge[1]]['dg_order']:
+                        newedge = [edge[1], edge[0]]
+                    elif self.DG.nodes[edge[0]]['dg_order'] < self.DG.nodes[edge[1]]['dg_order']:
+                        newedge = [edge[0], edge[1]]
+                    else:
+                        newedge = [edge[0], edge[1]] # These choices will not really matter
+                    self.LG.add_edge(newedge[0], newedge[1])
+                    logger.info("Hacking the LG path %d - %d" % (newedge[0], newedge[1]))
+        logger.info("DG Edges = " + repr(self.DG.edges))
+        logger.info("LG Edges = " + repr(self.LG.edges))
+
+        for node in self.LG.nodes:
             links = []
-            for neigh_node in list(self.DG.neighbors(node)):
+            for neigh_node in list(self.LG.neighbors(node)):
                 links.append(self.create_linkingbond(node, neigh_node))
-            self.DG.nodes[node]['linking_bonds'] = links
+            self.LG.nodes[node]['linking_bonds'] = links
 
         self.DG = self.DG.reverse(copy=False)
+        self.LG = self.LG.reverse(copy=False)
 
         #GOING FROM ENDS TO HEADNODE
-        for node in list(self.DG.nodes()):
+        for node in self.DG.nodes:
             self.DG.nodes[node]['dep_cur'] = 0
             self.DG.nodes[node]['ikprob'] = None
         done = False
@@ -178,7 +304,7 @@ class IK_CyclicPart:
                 if self.DG.nodes[node]['dep_cur'] == self.DG.nodes[node]['dep_max']:
                     if self.DG.nodes[node]['ikprob'] is None:
                         self.DG.nodes[node]['ikprob'] = IK_Problem(self.IG.nodes[node]['graph'], self.config,
-                                                                   consbonds=self.DG.nodes[node]['linking_bonds'])
+                                                                   consbonds=self.LG.nodes[node]['linking_bonds'])
                         self.sync_types(node)
                     elif not self.DG.nodes[node]['ikprob'].recheck_method():
                         self.sync_types(node)
@@ -195,17 +321,43 @@ class IK_CyclicPart:
                     nextnode = list(self.DG.neighbors(node))[0]
                     self.DG.nodes[nextnode]['dep_cur'] += 1
                     self.DG.nodes[node]['dep_cur'] += 1 # TO AVOID REPEATED ACTIONS FOR THE SAME NODE
+        # TODO If we got two neighboring IK_FlappingSolvers (or IK_45Solvers) give warning that code is not optimized
 
+        # ASSIGN SHARED VARIABLES TO BOND LENGTHS AND VALENCE ANGLES
+        if getbool("AllowBondPerturbation", "IK_TLCSolver", self.config) or \
+           getbool("AllowAnglePerturbation", "IK_TLCSolver", self.config):
+            if getbool("DoValidation", "IK_CyclicPart", self.config) or \
+               getbool("DoValidation", "IK_Molecule", self.config) or \
+               getbool("DoValidation", "IK_Problem", self.config):
+                for node in self.DG.nodes():
+                    if self.DG.nodes[node]['ikprob'].method == ikalg.TLC:
+                        if getbool("AllowBondPerturbation", "IK_TLCSolver", self.config):
+                            for edge in self.IG.nodes[node]['graph'].edges():
+                                svalue = self.DG.nodes[node]['ikprob'].share_length(edge)
 
+            for depnode in self.DG.nodes():
+                lbs = self.LG.nodes[depnode]['linking_bonds']
+                for lb in lbs:
+                    indnode = lb.ind_idx
+                    if lb.isFake():
+                        if getbool("AllowBondPerturbation", "IK_TLCSolver", self.config):
+                            for bond in lb.sbonds + lb.ibonds:
+                                bond_gidx = [bond['atoms'][0]['G_idx'], bond['atoms'][1]['G_idx']]
+                                svalue = self.DG.nodes[indnode]['ikprob'].share_length(bond_gidx)
+                                self.DG.nodes[depnode]['ikprob'].assign_shared_length(bond_gidx, svalue)
+                        if getbool("AllowAnglePerturbation", "IK_TLCSolver", self.config):
+                            for atom in lb.iatoms:
+                                gidx = atom['G_idx']
+                                svalue = self.DG.nodes[indnode]['ikprob'].share_vangle(gidx)
+                                self.DG.nodes[depnode]['ikprob'].assign_shared_vangle(gidx, svalue)
+                    elif getbool("AllowBondPerturbation", "IK_TLCSolver", self.config) and len(lb.bond) == 2:
+                        svalue = self.DG.nodes[indnode]['ikprob'].share_length(lb.bond)
+                        self.DG.nodes[depnode]['ikprob'].assign_shared_length(lb.bond, svalue)
+
+        # INITIALIZE SOLVER OBJECTS
         for node in list(self.DG.nodes()):
-            self.DG.nodes[node]['ikprob'].construct_solver()
             self.DG.nodes[node]['graph'] = self.IG.nodes[node]['graph']
-
-        # SET ATTRIBUTES FOR LINKING TORSIONS
-        for node in list(self.DG.nodes()):
-            for lb in self.DG.nodes[node]['linking_bonds']:
-                logger.info("node = %d; indep = %d; dep = %d" % (node, lb.ind_idx, lb.dep_idx))
-                ps = self.DG.nodes[lb.ind_idx]['ikprob'].getPS()
+            self.DG.nodes[node]['ikprob'].construct_solver()
 
     def startDiscreteRun(self):
         self.geomunit.startDiscreteRun()
@@ -225,11 +377,16 @@ class IK_CyclicPart:
             if len(link) == 2:
                 if not self.IG.nodes[node]['graph'][link[0]][link[1]]['type']:
                     self.IG.nodes[nb]['graph'][link[0]][link[1]]['type'] = False
+            elif len(link) > 2:
+                for edge in self.IG.nodes[node]['graph'].edges():
+                    if edge[0] in link and edge[1] in link and \
+                            not self.IG.nodes[node]['graph'][edge[0]][edge[1]]['type']:
+                        self.IG.nodes[nb]['graph'][edge[0]][edge[1]]['type'] = False
 
     def create_linkingbond(self, node, nbnode):
         # node=side1 - dependent
         # nbnode=side2 - independent
-        depbond = self.IG[node][nbnode]['link']
+        depbond = self.IG[node][nbnode]['link'] # List of linking atoms
         nodegraph = self.IG.nodes[node]['graph']
         nbgraph = self.IG.nodes[nbnode]['graph']
 
@@ -240,19 +397,23 @@ class IK_CyclicPart:
                 item.remove(depbond[1])
             for item in [node_sideat[1], nb_sideat[1]]:
                 item.remove(depbond[0])
-            linkingbond = IK_LinkingBond(depbond, [node_sideat[0][0], node_sideat[1][0]],
+            lb = IK_LinkingBond(depbond, [node_sideat[0][0], node_sideat[1][0]],
                                          [nb_sideat[0][0], nb_sideat[1][0]],
                                          nbnode, node)
+            lb.readDependence(self.G)
+            return lb
         elif len(depbond) == 1:
             node_sideat = list(nodegraph.neighbors(depbond[0]))
             nb_sideat = list(nbgraph.neighbors(depbond[0]))
-            linkingbond = IK_LinkingBond(depbond, [node_sideat[0], node_sideat[1]],
+            lb = IK_LinkingBond(depbond, [node_sideat[0], node_sideat[1]],
                                          [nb_sideat[0], nb_sideat[1]],
                                          nbnode, node)
+            lb.readDependence(self.G)
+            return lb
         else:
-            raise Exception("Trying to link >2 atoms")
-        linkingbond.readDependence(self.G)
-        return linkingbond
+            fb = IK_FakeBond(nodegraph, nbgraph, depbond, nbnode, node, self.config)
+            fb.readDependence(self.G)
+            return fb
 
     def buildPS(self):
         self.PS = IK_ParameterSet()
@@ -275,7 +436,7 @@ class IK_CyclicPart:
         TODO ACCOUNT FOR NUMBER OF NEIGHBORS IN self.IG
         """
         addconstr = 0
-        ncycles = nx.number_of_edges(self.G) - nx.number_of_nodes(self.G) + 1
+        ncycles = nx.number_of_edges(G) - nx.number_of_nodes(G) + 1
         nnodes = G.number_of_nodes()
         return nnodes - 3 - 3 * ncycles - addconstr
 
@@ -298,28 +459,7 @@ class IK_CyclicPart:
         return IK_ParameterSet()
 
     def setconfig(self, fullmolgraph, dfg, myfrag):
-        for i, node in enumerate(self.G.nodes()):
-            innerneighb = self.geomunit.getneighbors(node)
-            self.G.nodes[node]['innerframe'] = innerneighb
-
-            at1 = self.G.nodes[node]['xyz']
-            at0 = self.G.nodes[innerneighb[0]]['xyz']
-            at2 = self.G.nodes[innerneighb[1]]['xyz']
-
-            xv = at0 - at1
-            yv = at2 - at1
-            zv = IK_Math.gs_rand(xv, yv)
-
-            self.G.nodes[node]['outerNB'] = []
-            self.G.nodes[node]['localframeXYZ'] = []
-            for molnode in fullmolgraph.neighbors(node):
-                if molnode not in innerneighb: #and not self.G.has_node(molnode):
-                    self.G.nodes[node]['outerNB'].append(molnode)
-                    bondvec = fullmolgraph.nodes[molnode]['xyz'] - at1
-                    self.G.nodes[node]['localframeXYZ'].append(np.array([bondvec @ xv,
-                                                                         bondvec @ yv,
-                                                                         bondvec @ zv]))
-            self.G.nodes[node]['outerXYZ'] = [0] * len(self.G.nodes[node]['outerNB'])
+        self.geomunit.init_polyhedra(fullmolgraph)
 
         if len(list(dfg.neighbors(myfrag))) == 1:
             self.recalc_frame = True
@@ -344,16 +484,15 @@ class IK_CyclicPart:
         self.extG.add_nodes_from(self.G.nodes)
         self.extG.add_edges_from(self.G.edges)
         for cnode_idx, cnode in enumerate(self.G.nodes()):
-            for node in self.G.nodes[cnode]['outerNB']:
+            for node in self.G.nodes[cnode]['main_outerNB']:
                 if not self.extG.has_edge(cnode, node):
                     self.extG.add_edge(cnode, node)
-
         self.geomunit.setExtG(self.extG)
 
     def get_outer_xyz(self, cnode, Gidx):
-        for i, index in enumerate(self.G.nodes[cnode]['outerNB']):
+        for i, index in enumerate(self.G.nodes[cnode]['main_outerNB']):
             if index == Gidx:
-                return self.G.nodes[cnode]['outerXYZ'][i]
+                return self.G.nodes[cnode]['main_outerXYZ'][i]
         raise Exception("Something's wrong. I can feel it")
 
     def updateattributes(self, dfg, myfrag, loc_coord):
@@ -375,11 +514,11 @@ class IK_CyclicPart:
                                          (self.G.nodes[cnode]['xyz'] - at1) @ yv,
                                          (self.G.nodes[cnode]['xyz'] - at1) @ zv,
                                          1])
-            for onode_idx, onode in enumerate(self.G.nodes[cnode]['outerNB']):
+            for onode_idx, onode in enumerate(self.G.nodes[cnode]['main_outerNB']):
                 if onode in dfg.nodes[myfrag]['atoms'] and onode not in self.G.nodes():
-                    loc_coord[onode] = np.array([(self.G.nodes[cnode]['outerXYZ'][onode_idx] - at1) @ xv,
-                                                 (self.G.nodes[cnode]['outerXYZ'][onode_idx] - at1) @ yv,
-                                                 (self.G.nodes[cnode]['outerXYZ'][onode_idx] - at1) @ zv,
+                    loc_coord[onode] = np.array([(self.G.nodes[cnode]['main_outerXYZ'][onode_idx] - at1) @ xv,
+                                                 (self.G.nodes[cnode]['main_outerXYZ'][onode_idx] - at1) @ yv,
+                                                 (self.G.nodes[cnode]['main_outerXYZ'][onode_idx] - at1) @ zv,
                                                  1])
 
         startframe = np.zeros((4, 4))

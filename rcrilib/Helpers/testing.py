@@ -1,12 +1,12 @@
-import time
+import time, multiprocessing
 
-class Testing:
+class Timings:
     def __init__(self):
         self.goodtimes = []
         self.badtimes = []
         self.inittimes = []
 
-    def reset(self):
+    def reset(self, man=None):
         self.goodtimes = []
         self.badtimes = []
         self.inittimes = []
@@ -15,21 +15,36 @@ class Testing:
         self.start = time.perf_counter()
 
     def stop_init(self):
-        stoptime = time.perf_counter()
-        self.inittimes.append(time.perf_counter() - self.start)
-        self.start = stoptime
+        # stoptime = time.perf_counter()
+        self.inittimes.append(time.perf_counter())
+        # self.start = stoptime
 
     def stop_good(self):
-        stoptime = time.perf_counter()
-        self.goodtimes.append(time.perf_counter() - self.start)
-        self.start = stoptime
+        # stoptime = time.perf_counter()
+        self.goodtimes.append(time.perf_counter())
+        # self.start = stoptime
 
     def stop_bad(self):
-        stoptime = time.perf_counter()
-        self.badtimes.append(time.perf_counter() - self.start)
-        self.start = stoptime
+        # stoptime = time.perf_counter()
+        self.badtimes.append(time.perf_counter())
+        # self.start = stoptime
 
     def summarize(self, molfile):
+        for i in range(len(self.goodtimes)):
+            self.goodtimes[i] -= self.start
+        for i in reversed(range(1, len(self.goodtimes))):
+            self.goodtimes[i] -= self.goodtimes[i-1]
+
+        for i in range(len(self.badtimes)):
+            self.badtimes[i] -= self.start
+        for i in reversed(range(1, len(self.badtimes))):
+            self.badtimes[i] -= self.badtimes[i-1]
+
+        for i in range(len(self.inittimes)):
+            self.inittimes[i] -= self.start
+        for i in reversed(range(1, len(self.inittimes))):
+            self.inittimes[i] -= self.inittimes[i-1]
+
         print("-" * 40)
         print("| Timings for %s" % molfile)
         print("|%34s : %f s" % (
@@ -47,3 +62,14 @@ class Testing:
             print("|%34s : %d" % (
                 "Number of unsuccessful iterations", len(self.badtimes)))
         print("-" * 40)
+
+class Timings_parallel(Timings):
+    def reset(self, man=None):
+        self.goodtimes = man.list()
+        self.badtimes = man.list()
+        self.inittimes = man.list()
+
+    def format_lists(self):
+        self.goodtimes = list(self.goodtimes)
+        self.badtimes = list(self.badtimes)
+        self.inittimes = list(self.inittimes)

@@ -22,18 +22,21 @@ class IK_GC_BondLength:
     def __init__(self, G, idx):
         self.type = constype.LENGTH
         self.idx = deepcopy(idx)
-        # idx = [Gidx of first atom,Gidx of second atom]
-        self.value = norm(G.nodes()[idx[0]]['xyz']-G.nodes()[idx[1]]['xyz'])
+        # idx = [Gidx of first atom, Gidx of second atom]
+        if "shared_length" in G[idx[0]][idx[1]]:
+            self.value = G[idx[0]][idx[1]]['shared_length']
+        else:
+            self.value = norm(G.nodes[idx[0]]['xyz']-G.nodes[idx[1]]['xyz'])
 
-    def validate(self, G, attr="xyz"):
-        if not abs(norm(G.nodes()[self.idx[0]][attr]-G.nodes()[self.idx[1]][attr])-self.value) < 0.001:
+    def validate(self, G, attr="xyz", weak = False):
+        if not abs(norm(G.nodes[self.idx[0]][attr]-G.nodes[self.idx[1]][attr]) - float(self.value)) < 0.001:
             logger.error("Constraint on bond %s is NOT satisfied: %f instead of %f" % (repr(self.idx),
-                                        norm(G.nodes()[self.idx[0]][attr]-G.nodes()[self.idx[1]][attr]),self.value))
+                                        norm(G.nodes[self.idx[0]][attr]-G.nodes[self.idx[1]][attr]), self.value))
             return False
         else:
             logger.debug("Constraint on bond %s is satisfied: %f instead of %f" % (repr(self.idx),
-                                                                                norm(G.nodes()[self.idx[0]][attr] -
-                                                                                     G.nodes()[self.idx[1]][attr]),
+                                                                                norm(G.nodes[self.idx[0]][attr] -
+                                                                                     G.nodes[self.idx[1]][attr]),
                                                                                 self.value))
             return True
 
@@ -42,17 +45,22 @@ class IK_GC_ValAngle:
         self.type = constype.VANGLE
         self.idx = deepcopy(idx)
         # ind = [Gidx of side atom 1, Gidx of middle atom, Gidx of side atom 2]
-        self.value = IK_Math.getvalangle([G.nodes()[idx[0]]['xyz'],G.nodes()[idx[1]]['xyz'],G.nodes()[idx[2]]['xyz']])
+        if 'shared_vangle' in G.nodes[idx[1]]:
+            self.value = G.nodes[idx[1]]['shared_vangle']
+        else:
+            self.value = IK_Math.getvalangle([G.nodes[idx[0]]['xyz'], G.nodes[idx[1]]['xyz'], G.nodes[idx[2]]['xyz']])
 
-    def validate(self, G, attr="xyz"):
-        if not abs(IK_Math.getvalangle([G.nodes()[self.idx[0]][attr],G.nodes()[self.idx[1]][attr],G.nodes()[self.idx[2]][attr]])-self.value) < 0.001:
+    def validate(self, G, attr="xyz", weak = False):
+        if not abs(IK_Math.getvalangle([G.nodes[self.idx[0]][attr],
+                                        G.nodes[self.idx[1]][attr],
+                                        G.nodes[self.idx[2]][attr]]) - float(self.value)) < 0.001:
             logger.error("Constraint on vangle %s is NOT satisfied: %f instead of %f" % (repr(self.idx),
-                IK_Math.getvalangle([G.nodes()[self.idx[0]][attr],G.nodes()[self.idx[1]][attr],G.nodes()[self.idx[2]][attr]]),
+                IK_Math.getvalangle([G.nodes[self.idx[0]][attr],G.nodes[self.idx[1]][attr],G.nodes[self.idx[2]][attr]]),
                 self.value))
             return False
         else:
             logger.debug("Constraint on vangle %s is satisfied: %f instead of %f" % (repr(self.idx),
-              IK_Math.getvalangle([G.nodes()[self.idx[0]][attr], G.nodes()[self.idx[1]][attr], G.nodes()[self.idx[2]][attr]]),
+              IK_Math.getvalangle([G.nodes[self.idx[0]][attr], G.nodes[self.idx[1]][attr], G.nodes[self.idx[2]][attr]]),
               self.value))
             return True
 
@@ -61,9 +69,9 @@ class IK_GC_Polyhedra:
         self.type = constype.POLYHEDRA
         self.idx = deepcopy(idx)
         # idx = [[Gidx of side atom 1, Gidx of middle atom, Gidx of side atom 2],[other atoms]]
-        prevvec = G.nodes()[idx[0][0]]['xyz']
-        curvec = G.nodes()[idx[0][1]]['xyz']
-        nextvec = G.nodes()[idx[0][2]]['xyz']
+        prevvec = G.nodes[idx[0][0]]['xyz']
+        curvec = G.nodes[idx[0][1]]['xyz']
+        nextvec = G.nodes[idx[0][2]]['xyz']
 
         av = nextvec - curvec
         bv = prevvec - curvec
@@ -71,13 +79,13 @@ class IK_GC_Polyhedra:
 
         self.value = []
         for item in idx[1]:
-            temp = G.nodes()[item]['xyz'] - curvec
+            temp = G.nodes[item]['xyz'] - curvec
             self.value.append(np.array([np.dot(temp, av), np.dot(temp, bv), np.dot(temp, cv)]))
 
-    def validate(self, G, attr="xyz"):
-        prevvec = G.nodes()[self.idx[0][0]][attr]
-        curvec = G.nodes()[self.idx[0][1]][attr]
-        nextvec = G.nodes()[self.idx[0][2]][attr]
+    def validate(self, G, attr="xyz", weak = False):
+        prevvec = G.nodes[self.idx[0][0]][attr]
+        curvec = G.nodes[self.idx[0][1]][attr]
+        nextvec = G.nodes[self.idx[0][2]][attr]
 
         av = nextvec - curvec
         bv = prevvec - curvec
@@ -86,7 +94,7 @@ class IK_GC_Polyhedra:
         res = True
         for i in range(len(self.value)):
 
-            temp = G.nodes()[self.idx[1][i]][attr] - curvec
+            temp = G.nodes[self.idx[1][i]][attr] - curvec
             temp = np.array([np.dot(temp,av),np.dot(temp,bv),np.dot(temp,cv)])
             if not norm(self.value[i] - temp)<0.005:
                 logger.error("Constraint on position of %d in polyhedra %d is NOT satisfied: %s instead of %s "
@@ -107,16 +115,21 @@ class IK_GC_Torsion:
         self.param = param
         # ind = [Gidx of side atom 1, Gidx of middle atom 1, Gidx of middle atom 2,  Gidx of side atom 2]
 
-    def validate(self, G, attr="xyz"):
-        curvalue = IK_Math.gettorsion([G.nodes()[self.idx[0]][attr],G.nodes()[self.idx[1]][attr],
-                                       G.nodes()[self.idx[2]][attr],G.nodes()[self.idx[3]][attr]])
-        if not abs(curvalue-self.param.value) < 0.001:
+    def validate(self, G, attr="xyz", weak = False):
+        curvalue = IK_Math.gettorsion([G.nodes[self.idx[0]][attr],G.nodes[self.idx[1]][attr],
+                                       G.nodes[self.idx[2]][attr],G.nodes[self.idx[3]][attr]])
+        targvalue = self.param.getValue()
+        if weak:
+            return True
+        if targvalue > 180 * deg2rad:
+            targvalue -= 360 * deg2rad
+        if not abs(curvalue - targvalue) < 0.001:
             logger.error("Constraint on tangle %s is NOT satisfied: %f instead of %f" % (repr(self.idx),
-                curvalue * rad2deg, self.param.value * rad2deg))
+                curvalue * rad2deg, targvalue * rad2deg))
             return False
         else:
             logger.debug("Constraint on tangle %s is satisfied: %f instead of %f" % (repr(self.idx),
-                curvalue * rad2deg, self.param.value * rad2deg))
+                curvalue * rad2deg, targvalue * rad2deg))
             return True
 
 class IK_GeomValidator:
@@ -128,31 +141,36 @@ class IK_GeomValidator:
     def initialize(self, PS):
         #BONDS
         for bond in list(self.G.edges):
-            self.constraints.append(IK_GC_BondLength(self.G,bond))
+            self.constraints.append(IK_GC_BondLength(self.G, bond))
 
         # #VAL ANGLES AND POLYHEDRA
         # #TODO get rid of linearity problem
         # for node in list(self.G.nodes()):
         #     nb = list(self.G.neighbors(node))
         #     if len(nb) >= 2:
-        #         self.constraints.append(IK_GC_ValAngle(self.G,[nb[0],node,nb[1]]))
+        #         for i in range(len(nb)):
+        #             for j in range(i+1, len(nb)):
+        #                 self.constraints.append(IK_GC_ValAngle(self.G,[nb[i],node,nb[j]]))
         #         if len(nb) > 2:
         #             othernodes = []
         #             for i in range(2,len(nb)):
         #                 othernodes.append(nb[i])
         #             self.constraints.append(IK_GC_Polyhedra(self.G, [[nb[0], node, nb[1]],othernodes]))
-        # TORSIONS
-        # for item in PS:
-        #     if item.isContinuous() and len(item.atoms) == 2:
-        #         self.constraints.append(IK_GC_Torsion(self.G, [item.sides[0], item.atoms[0], item.atoms[1], item.sides[1]], item))
 
-    def validate(self, G, attr="xyz"):
+        # TORSIONS
+        for item in PS:
+            if item.isContinuous() and len(item.atoms) == 2:
+                self.constraints.append(IK_GC_Torsion(self.G, [item.sides[0], item.atoms[0],
+                                                               item.atoms[1], item.sides[1]], item))
+
+    def validate(self, G, attr="xyz", weak=False):
         passed = True
         for cons in self.constraints:
-            ok = cons.validate(G, attr=attr)
+            ok = cons.validate(G, attr=attr, weak=weak)
             if not ok:
                 passed = False
-                raise Exception("Bond length check not passed")
+        if not passed:
+            raise Exception("Validation failed. See errors above")
         return passed
 
 def geomcheckTree_array(atoms_xyz, bonds, mindist):

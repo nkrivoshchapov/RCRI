@@ -47,7 +47,12 @@ class SystematicDriver:
 
     def setValues(self):
         for i, item in enumerate(self.cursteps):
-            self.PS[i].setValue((item*self.stepsize + self.startvalue)*deg2rad)
+            newangle = item*self.stepsize + self.startvalue
+            while newangle > 180:
+                newangle -= 360
+            while newangle < -180:
+                newangle += 360
+            self.PS[i].setValue(newangle*deg2rad)
 
     def switchToNext(self):
         increased = False
@@ -62,13 +67,11 @@ class SystematicDriver:
             raise Exception("Cannot make another step. Systematic search is finished")
 
     def reset(self):
-        # if not self.isDone():
-        #     raise Exception("Search is not finished!")
         self.cursteps = [0] * len(self.PS.params)
 
 class SystematicDriver_parallel(object):
     def __init__(self, ps, stepsize, startvalue):
-        super(SystematicDriver_parallel, self).__init__()
+        # super(SystematicDriver_parallel, self).__init__()
         self.mgr = multiprocessing.Manager()
         self.lock = multiprocessing.Lock()
 
@@ -89,7 +92,7 @@ class SystematicDriver_parallel(object):
                     increased = True
                     break
             if not increased:
-                raise Exception("Cannot make another step. Systematic search is finished")
+                logger.error("Cannot make another step. Systematic search is finished")
 
     def isDone(self):
         with self.lock:
@@ -101,12 +104,40 @@ class SystematicDriver_parallel(object):
     def setValues(self, ps):
         with self.lock:
             for i, item in enumerate(self.cursteps):
-                ps[i].setValue((item*self.stepsize + self.startvalue)*deg2rad)
+                newangle = item * self.stepsize + self.startvalue
+                while newangle > 180:
+                    newangle -= 360
+                while newangle < -180:
+                    newangle += 360
+                ps[i].setValue(newangle * deg2rad)
 
-class Counter_parallel(object):
-    def __init__(self, initval=0):
+
+class Confcounter(object):
+    def __init__(self, maxconf, initval=0):
+        self.val = initval
+        self.maxconf = maxconf
+
+    def increment(self):
+        self.val += 1
+
+    def value(self):
+        return self.val
+
+    def __int__(self):
+        return self.val
+
+    def __str__(self):
+        return str(self.val)
+
+    def isFinished(self):
+        return self.val >= self.maxconf
+
+
+class Confcounter_parallel(object):
+    def __init__(self, maxconf, initval=0):
         self.val = multiprocessing.Value('i', initval)
         self.lock = multiprocessing.Lock()
+        self.maxconf = maxconf
 
     def increment(self):
         with self.lock:
@@ -115,3 +146,15 @@ class Counter_parallel(object):
     def value(self):
         with self.lock:
             return self.val.value
+
+    def __int__(self):
+        with self.lock:
+            return self.val.value
+
+    def __str__(self):
+        with self.lock:
+            return str(self.val.value)
+
+    def isFinished(self):
+        with self.lock:
+            return self.val.value >= self.maxconf

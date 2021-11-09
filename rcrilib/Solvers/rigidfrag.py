@@ -81,11 +81,19 @@ class IK_RigidFrag:
 
     def setparam(self, bond):
         if bond['free']:
-            self.PS += IK_Parameter(ikdof.CONTINUOUS, ikdof.FREE, bond.bond_getsideatoms(), tc.RIGIDFRAG, True, bond=bond)
+            p = IK_Parameter(ikdof.CONTINUOUS, ikdof.FREE, bond.bond_getsideatoms(), tc.RIGIDFRAG, True, bond=bond)
         elif not bond['free'] and bond['dep']:
-            self.PS += IK_Parameter(ikdof.CONTINUOUS, ikdof.DEPENDENT, bond.bond_getsideatoms(), tc.RIGIDFRAG, True, bond=bond)
+            p = IK_Parameter(ikdof.CONTINUOUS, ikdof.DEPENDENT, bond.bond_getsideatoms(), tc.RIGIDFRAG, True, bond=bond)
         elif not bond['free'] and not bond['dep']:
-            self.PS += IK_Parameter(ikdof.CONTINUOUS, ikdof.FIXED, bond.bond_getsideatoms(), tc.RIGIDFRAG, True, bond=bond)
+            p = IK_Parameter(ikdof.CONTINUOUS, ikdof.FIXED, bond.bond_getsideatoms(), tc.RIGIDFRAG, True, bond=bond)
+        else:
+            raise Exception("what is this?")
+
+        if hasattr(bond, "shared_dihedral"):
+            p.value = bond["shared_dihedral"]
+        # else:
+        #     p.makeshared("Bond (%d,%d) in Rigid fragment" % (bond['atoms'][0]['G_idx'], bond['atoms'][1]['G_idx']))
+        self.PS += p
 
     def initGeom(self):
         # BOND LENGTHS
@@ -126,14 +134,16 @@ class IK_RigidFrag:
             self.leng = self.sbonds[0].bond_getlength()
             self.vang1 = self.satoms[0].atom_getangle() * rad2deg
             self.vang2 = self.satoms[1].atom_getangle() * rad2deg
-            self.tang = self.PS[0].value * rad2deg
+            self.tang = self.PS[0].getValue() * rad2deg
         elif self.case == rfcase.GENERAL:
             RTmat = IK_Math.Vmat(self.satoms[0].atom_getangle())@\
                     IK_Math.Dmat(self.sbonds[0].bond_getlength())@\
-                    IK_Math.Tmat(self.PS[0].value)
+                    IK_Math.Tmat(self.PS[0].getValue())
             logger.debug("Setting torsions:")
             for item in self.PS:
-                logger.debug(repr(item.value)+"("+repr(item.value*rad2deg)+")")
+                # if item.getValue() is None:
+                #     print("HERE")
+                logger.debug(repr(item.getValue())+"("+repr(item.getValue()*rad2deg)+")")
             logger.debug("My bonds side=%s ends=%s inter=%s"%(repr(self.sbonds),repr(self.ebonds),repr(self.ibonds)))
             self.eatoms[0]['fragframe'] = np.array([-self.ebonds[0].bond_getlength(),0.0,0.0])
             self.satoms[0]['fragframe'] = np.array([0.0, 0.0, 0.0])
@@ -149,7 +159,7 @@ class IK_RigidFrag:
                                                         atom['frame_coord'][2]])
                 RTmat = RTmat@IK_Math.Vmat(atom.atom_getangle()) @ \
                               IK_Math.Dmat(atom['bonds'][1].bond_getlength()) @ \
-                              IK_Math.Tmat(self.PS[i+1].value)
+                              IK_Math.Tmat(self.PS[i+1].getValue())
                 logger.debug("PS[%d] was used"%(i))
                 i += 1
             self.satoms[1]['fragframe'] = np.array([IK_Math.xyz_from_frame(RTmat)[0],
@@ -163,6 +173,7 @@ class IK_RigidFrag:
             self.eatoms[1]['fragframe'] = np.array([IK_Math.xyz_from_frame(RTmat)[0],
                                                     IK_Math.xyz_from_frame(RTmat)[1],
                                                     IK_Math.xyz_from_frame(RTmat)[2]])
+            # raise Exception(repr(RTmat.dtype))
             self.leng = norm(firstside_xyz - lastside_xyz)
             self.vang1 = np.arccos(
                 np.dot(firstside_xyz - lastside_xyz, firstside_dir) / norm(firstside_xyz - lastside_xyz) / norm(
@@ -202,11 +213,11 @@ class IK_RigidFrag:
                                                 bond.bond_getlength(forcecalc=False,attr="fragframe")))
 
                 for param in self.PS:
-                    if not abs(param.bond.bond_gettorsion(attr="fragframe") - param.value) < 0.001:
+                    if not abs(param.bond.bond_gettorsion(attr="fragframe") - param.getValue()) < 0.001:
                         passed = False
                         logger.error("Torsion on %s constraint is not satisfied - %f instead of %f" % (repr(param.bond),
                                                 param.bond.bond_gettorsion(attr="fragframe"),
-                                                param.value))
+                                                param.getValue()))
                 if not passed:
                     raise Exception("Fragprep. Not a solution")
                 else:
@@ -221,14 +232,14 @@ class IK_RigidFrag:
     def get_length(self):
         return self.leng
 
-    def printgeom(self):
-        eat = self.eatoms[1]
-        at = self.eatoms[0]
-        while True:
-            print("C %14.6f %14.6f %14.6f" % (at['xyz'][0], at['xyz'][1], at['xyz'][2]))
-            at += 1
-            if at == eat:
-                break
+    # def printgeom(self):
+    #     eat = self.eatoms[1]
+    #     at = self.eatoms[0]
+    #     while True:
+    #         print("C %14.6f %14.6f %14.6f" % (at['xyz'][0], at['xyz'][1], at['xyz'][2]))
+    #         at += 1
+    #         if at == eat:
+    #             break
 
     def setgeom(self):
         if not self.case == rfcase.GENERAL:
@@ -276,13 +287,13 @@ class IK_RigidFrag:
                                                         bond.bond_getlength(forcecalc=False)))
 
             for param in self.PS:
-                if not abs(param.bond.bond_gettorsion()-param.value) < 0.001:
+                if not abs(param.bond.bond_gettorsion()-param.getValue()) < 0.001:
                     passed = False
                     logger.error("Torsion on %s constraint is not satisfied - %f instead of %f" % (repr(param.bond),
                                                         param.bond.bond_gettorsion(),
-                                                        param.value))
+                                                        param.getValue()))
 
             if not passed:
-                raise Exception("[RIGIDFRAG] Not a solution")
+                raise Exception("Not a solution")
             else:
                 logger.info("Fragment test passed")

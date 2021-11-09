@@ -1,7 +1,7 @@
 from rdkit import Chem
 from rdkit.Chem import AllChem
 
-SMILES = "[H][C@]1(CCC2)[C@@]2([H])CCC1"
+SMILES = "C1(CCCCCC2CCCCCC3CCC4CCCCCC(CCCCC5)CC2)CCCCCC(CCCCC3)CCC(CCCCC4)CCCCCC5CC1"
 
 mol_noh = Chem.MolFromSmiles(SMILES)
 mol_withh = Chem.AddHs(mol_noh)
@@ -15,6 +15,6 @@ nbonds = int(lines[3][3:6])
 if natoms > 99:
     for i in range(4 + natoms, 4 + natoms + nbonds):
         lines[i] = lines[i][:3] + ' ' + lines[i][3:]
-file = open("molfromsmiles.sdf", "w")
+file = open("cococ_1.sdf", "w")
 file.write("\n".join(lines))
 file.close()
