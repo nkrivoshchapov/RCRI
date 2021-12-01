@@ -26,7 +26,7 @@ However, explanations in section 1.4 are intended for all the users because thes
 
 ### 1.2. Prerequisites
 
-gcc; g++; gfortran; cmake; Python 3 with libararies numpy, scipy, networkx and rdkit (the last one is optional).
+gcc; g++; gfortran; cmake; Python 3 with numpy, scipy, networkx and rdkit libraries (the last one is optional).
 
 NumPy is essential for handling matricies and vectors. SciPy is required for kd-tree-based algorithm of detection of undesired overlaps of atoms. Networkx is needed for working with graphs. RDKit is used outside of the library in`testing/smiles_to_mol.py` script for convenient generation of molecule's 3D geometry from its SMILES.
 
