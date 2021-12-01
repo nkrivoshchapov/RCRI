@@ -22,7 +22,7 @@ Use of executables for Windows or Linux is the easiest way to run SC algorithm b
 
 Instructions in sections 1.2-1.3 are intended for users who wish to run `rcrilib` as python-library and be able to modify any part of the conformational search algorithm.
 
-However, explanations in section 1.4 are intended for all the users because these sections contain basic information about the algorithm, features of this implemetation and its limitations.
+However, explanations in section 1.4 are intended for all the users because these sections contain basic information about the algorithm, features of this implementation and its limitations.
 
 ### 1.2. Prerequisites
 
