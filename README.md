@@ -55,7 +55,7 @@ cd ..
 
 In this way, the library `libtlc.so` will be built and copied into `rcrilib/Solvers`. Which means that `rcrilib` will become a functioning python-library loadable only from `RCRI` directory.
 
-If you wish to install this library as your Python-package for it to be accessable from any directory, then execute this instaed:
+If you wish to install this library as your Python-package for it to be accessable from any directory, then execute this instead:
 
 ```
 pip install .
